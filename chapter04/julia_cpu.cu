@@ -70,6 +70,7 @@ int main( void ) {
 
     kernel( ptr );
 
-    bitmap.display_and_exit();
+    // bitmap.display_and_exit();
+    bitmap.save_image("julia_cpu.png");
 }
 

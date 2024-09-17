@@ -1,0 +1,9 @@
+# executables
+julia_cpu
+julia_gpu
+
+# intermediate results/files
+*.png
+
+# vscode
+.vscode/

@@ -89,6 +89,7 @@ int main( void ) {
                               
     HANDLE_ERROR( cudaFree( dev_bitmap ) );
                               
-    bitmap.display_and_exit();
+    // bitmap.display_and_exit();
+    bitmap.save_image("julia_gpu.png");
 }
 
