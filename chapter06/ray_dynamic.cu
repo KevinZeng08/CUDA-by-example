@@ -19,11 +19,13 @@
 #include "../common/cpu_bitmap.h"
 
 #define DIM 1024
+#define NUM_FRAME 20
 
 #define rnd( x ) (x * rand() / RAND_MAX)
 #define INF     2e10f
 
 struct Sphere {
+    float   vx,vy,vz; // velocity
     float   r,b,g;
     float   radius;
     float   x,y,z;
@@ -40,8 +42,24 @@ struct Sphere {
 };
 #define SPHERES 20
 
+__constant__ Sphere s[SPHERES];
 
-__global__ void kernel( Sphere *s, unsigned char *ptr ) {
+void updatePosition(Sphere &s, const double delta_time) {
+    s.x += s.vx * delta_time;
+    s.y += s.vy * delta_time;
+    s.z += s.vz * delta_time;
+    if (s.x > 500 || s.x < -500) {
+        s.vx = -s.vx;
+    }
+    if (s.y > 500 || s.y < -500) {
+        s.vy = -s.vy;
+    }
+    if (s.z > 500 || s.z < -500) {
+        s.vz = -s.vz;
+    }
+}
+
+__global__ void kernel( unsigned char *ptr ) {
     // map from threadIdx/BlockIdx to pixel position
     int x = threadIdx.x + blockIdx.x * blockDim.x;
     int y = threadIdx.y + blockIdx.y * blockDim.y;
@@ -69,11 +87,9 @@ __global__ void kernel( Sphere *s, unsigned char *ptr ) {
     ptr[offset*4 + 3] = 255;
 }
 
-
 // globals needed by the update routine
 struct DataBlock {
     unsigned char   *dev_bitmap;
-    Sphere          *s;
 };
 
 int main( void ) {
@@ -86,19 +102,19 @@ int main( void ) {
 
     CPUBitmap bitmap( DIM, DIM, &data );
     unsigned char   *dev_bitmap;
-    Sphere          *s;
-
 
     // allocate memory on the GPU for the output bitmap
     HANDLE_ERROR( cudaMalloc( (void**)&dev_bitmap,
                               bitmap.image_size() ) );
-    // allocate memory for the Sphere dataset
-    HANDLE_ERROR( cudaMalloc( (void**)&s,
-                              sizeof(Sphere) * SPHERES ) );
 
-    // allocate temp memory, initialize it, copy to
+    // allocate temp memory, initialize it, copy to constant
     // memory on the GPU, then free our temp memory
     Sphere *temp_s = (Sphere*)malloc( sizeof(Sphere) * SPHERES );
+    for (int i=0; i<SPHERES; i++) {
+        temp_s[i].vx = rnd(100.0f) - 50.0f;
+        temp_s[i].vy = rnd(100.0f) - 50.0f;
+        temp_s[i].vz = rnd(100.0f) - 50.0f;
+    }
     for (int i=0; i<SPHERES; i++) {
         temp_s[i].r = rnd( 1.0f );
         temp_s[i].g = rnd( 1.0f );
@@ -108,20 +124,35 @@ int main( void ) {
         temp_s[i].z = rnd( 1000.0f ) - 500;
         temp_s[i].radius = rnd( 100.0f ) + 20;
     }
-    HANDLE_ERROR( cudaMemcpy( s, temp_s,
-                                sizeof(Sphere) * SPHERES,
-                                cudaMemcpyHostToDevice ) );
-    free( temp_s );
+    // HANDLE_ERROR( cudaMemcpyToSymbol( s, temp_s, 
+    //                             sizeof(Sphere) * SPHERES) );
+    // free( temp_s );
 
+    const double delta_time = 1.0;
     // generate a bitmap from our sphere data
     dim3    grids(DIM/16,DIM/16);
     dim3    threads(16,16);
-    kernel<<<grids,threads>>>( s, dev_bitmap );
 
-    // copy our bitmap back from the GPU for display
-    HANDLE_ERROR( cudaMemcpy( bitmap.get_ptr(), dev_bitmap,
-                              bitmap.image_size(),
-                              cudaMemcpyDeviceToHost ) );
+    // video is composed of several frames
+    for (int frame = 0; frame < NUM_FRAME; ++frame) {
+        HANDLE_ERROR( cudaMemcpyToSymbol( s, temp_s, 
+                                    sizeof(Sphere) * SPHERES) );
+        HANDLE_ERROR( cudaMemset( dev_bitmap, 0, bitmap.image_size() ) );
+        kernel<<<grids,threads>>>( dev_bitmap );
+        for (int i = 0; i < SPHERES; ++i) {
+            updatePosition(temp_s[i], delta_time);
+        }
+
+        // copy our bitmap back from the GPU for display
+        HANDLE_ERROR( cudaMemcpy( bitmap.get_ptr(), dev_bitmap,
+                                bitmap.image_size(),
+                                cudaMemcpyDeviceToHost ) );
+        char filename[256];
+        sprintf(filename, "ray_%d.png", frame);
+        bitmap.save_image(filename);
+    }
+
+    free( temp_s );
 
     // get stop time, and display the timing results
     HANDLE_ERROR( cudaEventRecord( stop, 0 ) );
@@ -135,10 +166,9 @@ int main( void ) {
     HANDLE_ERROR( cudaEventDestroy( stop ) );
 
     HANDLE_ERROR( cudaFree( dev_bitmap ) );
-    HANDLE_ERROR( cudaFree( s ) );
 
     // display
     // bitmap.display_and_exit();
-    bitmap.save_image("ray_noconst.png");
+    // bitmap.save_image("ray.png");
 }
 
