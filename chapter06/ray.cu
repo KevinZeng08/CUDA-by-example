@@ -17,6 +17,7 @@
 #include "cuda.h"
 #include "../common/book.h"
 #include "../common/cpu_bitmap.h"
+#include "../common/utils.h"
 
 #define DIM 1024
 
@@ -38,7 +39,7 @@ struct Sphere {
         return -INF;
     }
 };
-#define SPHERES 20
+#define SPHERES 1000
 
 __constant__ Sphere s[SPHERES];
 
@@ -77,11 +78,6 @@ struct DataBlock {
 
 int main( void ) {
     DataBlock   data;
-    // capture the start time
-    cudaEvent_t     start, stop;
-    HANDLE_ERROR( cudaEventCreate( &start ) );
-    HANDLE_ERROR( cudaEventCreate( &stop ) );
-    HANDLE_ERROR( cudaEventRecord( start, 0 ) );
 
     CPUBitmap bitmap( DIM, DIM, &data );
     unsigned char   *dev_bitmap;
@@ -109,27 +105,19 @@ int main( void ) {
     // generate a bitmap from our sphere data
     dim3    grids(DIM/16,DIM/16);
     dim3    threads(16,16);
+    START_GPU
     kernel<<<grids,threads>>>( dev_bitmap );
+    END_GPU("Ray Tracing")
 
     // copy our bitmap back from the GPU for display
     HANDLE_ERROR( cudaMemcpy( bitmap.get_ptr(), dev_bitmap,
                               bitmap.image_size(),
                               cudaMemcpyDeviceToHost ) );
 
-    // get stop time, and display the timing results
-    HANDLE_ERROR( cudaEventRecord( stop, 0 ) );
-    HANDLE_ERROR( cudaEventSynchronize( stop ) );
-    float   elapsedTime;
-    HANDLE_ERROR( cudaEventElapsedTime( &elapsedTime,
-                                        start, stop ) );
-    printf( "Time to generate:  %3.1f ms\n", elapsedTime );
-
-    HANDLE_ERROR( cudaEventDestroy( start ) );
-    HANDLE_ERROR( cudaEventDestroy( stop ) );
-
     HANDLE_ERROR( cudaFree( dev_bitmap ) );
 
     // display
-    bitmap.display_and_exit();
+    // bitmap.display_and_exit();
+    bitmap.save_image("ray.png");
 }
 

@@ -3,6 +3,8 @@ julia_cpu
 julia_gpu
 
 # intermediate results/files
+imgs/
+results/
 *.png
 
 # vscode

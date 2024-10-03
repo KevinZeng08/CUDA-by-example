@@ -17,9 +17,11 @@
 #include "cuda.h"
 #include "../common/book.h"
 #include "../common/cpu_bitmap.h"
+#include "../common/utils.h"
 
 #define DIM 1024
-#define NUM_FRAME 20
+#define NUM_FRAME 100
+#define BLOCK_SIZE 16
 
 #define rnd( x ) (x * rand() / RAND_MAX)
 #define INF     2e10f
@@ -94,18 +96,13 @@ struct DataBlock {
 
 int main( void ) {
     DataBlock   data;
-    // capture the start time
-    cudaEvent_t     start, stop;
-    HANDLE_ERROR( cudaEventCreate( &start ) );
-    HANDLE_ERROR( cudaEventCreate( &stop ) );
-    HANDLE_ERROR( cudaEventRecord( start, 0 ) );
 
     CPUBitmap bitmap( DIM, DIM, &data );
     unsigned char   *dev_bitmap;
 
     // allocate memory on the GPU for the output bitmap
     HANDLE_ERROR( cudaMalloc( (void**)&dev_bitmap,
-                              bitmap.image_size() ) );
+                              bitmap.image_size() * NUM_FRAME ) );
 
     // allocate temp memory, initialize it, copy to constant
     // memory on the GPU, then free our temp memory
@@ -130,40 +127,38 @@ int main( void ) {
 
     const double delta_time = 1.0;
     // generate a bitmap from our sphere data
-    dim3    grids(DIM/16,DIM/16);
-    dim3    threads(16,16);
+    dim3    grids((DIM)/BLOCK_SIZE,(DIM)/BLOCK_SIZE);
+    dim3    threads(BLOCK_SIZE, BLOCK_SIZE);
 
     // video is composed of several frames
+    START_GPU
     for (int frame = 0; frame < NUM_FRAME; ++frame) {
+        int frame_offset = frame * bitmap.image_size();
         HANDLE_ERROR( cudaMemcpyToSymbol( s, temp_s, 
                                     sizeof(Sphere) * SPHERES) );
-        HANDLE_ERROR( cudaMemset( dev_bitmap, 0, bitmap.image_size() ) );
-        kernel<<<grids,threads>>>( dev_bitmap );
+        kernel<<<grids,threads>>>( dev_bitmap + frame_offset );
         for (int i = 0; i < SPHERES; ++i) {
             updatePosition(temp_s[i], delta_time);
         }
-
-        // copy our bitmap back from the GPU for display
-        HANDLE_ERROR( cudaMemcpy( bitmap.get_ptr(), dev_bitmap,
-                                bitmap.image_size(),
-                                cudaMemcpyDeviceToHost ) );
-        char filename[256];
-        sprintf(filename, "ray_%d.png", frame);
-        bitmap.save_image(filename);
     }
+    END_GPU("Ray Tracing")
 
     free( temp_s );
 
-    // get stop time, and display the timing results
-    HANDLE_ERROR( cudaEventRecord( stop, 0 ) );
-    HANDLE_ERROR( cudaEventSynchronize( stop ) );
-    float   elapsedTime;
-    HANDLE_ERROR( cudaEventElapsedTime( &elapsedTime,
-                                        start, stop ) );
-    printf( "Time to generate:  %3.1f ms\n", elapsedTime );
-
-    HANDLE_ERROR( cudaEventDestroy( start ) );
-    HANDLE_ERROR( cudaEventDestroy( stop ) );
+    // output result
+    clock_t start_time = clock();
+    for (int frame = 0; frame < NUM_FRAME; ++frame) {
+        int frame_offset = frame * bitmap.image_size();
+        // copy our bitmap back from the GPU for display
+        HANDLE_ERROR( cudaMemcpy( bitmap.get_ptr(), dev_bitmap + frame_offset,
+                                bitmap.image_size(),
+                                cudaMemcpyDeviceToHost ) );
+        char filename[256];
+        sprintf(filename, "results/ray_%04d.png", frame);
+        bitmap.save_image(filename);
+    }
+    clock_t end_time = clock();
+    printf("Time to save images: %f ms\n", (double)(end_time - start_time) / CLOCKS_PER_SEC * 1000);
 
     HANDLE_ERROR( cudaFree( dev_bitmap ) );
 
