@@ -15,12 +15,16 @@ else
 endif
 
 # Targets
-TARGETS = ray_noconst ray_dynamic ray
+TARGETS = ray_noconst ray_dynamic ray_noconst_dynamic ray 
 
 # Linked file
 STB_IMAGE_FILE = ../common/stb/stb_image_write.cpp
 
 all: $(TARGETS)
+
+# Dynamic Ray Tracing
+ray_noconst_dynamic: ray_noconst_dynamic.cu $(STB_IMAGE_FILE)
+	$(NVCC) $(NVCC_FLAGS) -o $@ $^
 
 # Dynamic Ray Tracing
 ray_dynamic: ray_dynamic.cu $(STB_IMAGE_FILE)
