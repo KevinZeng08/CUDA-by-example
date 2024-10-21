@@ -9,3 +9,6 @@ results/
 
 # vscode
 .vscode/
+
+# compiled objects
+build/
