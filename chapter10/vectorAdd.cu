@@ -140,6 +140,7 @@ main(void)
     else
         printf("C ok!");
 
+    START_GPU
     // Copy the host input vectors A and B in host memory to the device input vectors in
     // device memory
     printf("Copy input data from the host memory to the CUDA device\n");
@@ -164,9 +165,7 @@ main(void)
     int blocksPerGrid = (numElements + threadsPerBlock - 1) / threadsPerBlock;
     printf("CUDA kernel launch with %d blocks of %d threads\n", blocksPerGrid, threadsPerBlock);
 
-    START_GPU
     vectorAdd << <blocksPerGrid, threadsPerBlock >> > (d_A, d_B, d_C, numElements);
-    END_GPU
 
     err = cudaGetLastError();
 
@@ -186,6 +185,8 @@ main(void)
         fprintf(stderr, "Failed to copy vector C from device to host (error code %s)!\n", cudaGetErrorString(err));
         exit(EXIT_FAILURE);
     }
+
+    END_GPU
 
     START_CPU
     // Verify that the result vector is correct
